@@ -3,11 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>ダッシュボード - SSL Shop</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body class="bg-gray-100" x-data="dashboardApp()" x-init="checkAuth()">
+    <!-- デバッグ情報 -->
+    <div class="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 text-xs" x-show="user">
+        <strong>デバッグ情報:</strong> 
+        現在のユーザー: <span x-text="user?.name"></span> 
+        (<span x-text="user?.email"></span>)
+        | ID: <span x-text="user?.id"></span>
+        | トークン: <span x-text="tokenPreview"></span>
+    </div>
+
     <!-- ローディング画面 -->
     <div x-show="loading" class="min-h-screen flex items-center justify-center">
         <div class="text-center">
@@ -154,30 +164,71 @@
                 loading: true,
                 authenticated: false,
                 user: null,
+                tokenPreview: '',
 
                 async checkAuth() {
+                    console.log('=== ダッシュボード認証チェック開始 ===');
+                    
                     const token = localStorage.getItem('auth_token');
+                    const storedUser = localStorage.getItem('user');
+                    
+                    console.log('localStorage内容:');
+                    console.log('- auth_token:', token ? token.substring(0, 10) + '...' : 'なし');
+                    console.log('- user:', storedUser);
                     
                     if (!token) {
+                        console.log('トークンがないためログインページへリダイレクト');
                         this.redirectToLogin();
                         return;
                     }
 
+                    this.tokenPreview = token.substring(0, 10) + '...';
+
                     try {
+                        console.log('APIにユーザー情報を問い合わせ中...');
+                        
+                        // 少し待機してからAPIを呼び出し（データベース同期のため）
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        
                         const response = await fetch('/api/v1/user', {
                             method: 'GET',
                             headers: {
                                 'Authorization': `Bearer ${token}`,
                                 'Accept': 'application/json',
+                                'Cache-Control': 'no-cache', // キャッシュを無効化
                             }
                         });
 
+                        console.log('APIレスポンスステータス:', response.status);
+
                         if (response.ok) {
                             const data = await response.json();
+                            console.log('APIから取得したユーザー情報:', data.user);
+                            
+                            // ローカルストレージと比較
+                            if (storedUser) {
+                                const localUser = JSON.parse(storedUser);
+                                console.log('ローカルユーザーID:', localUser.id);
+                                console.log('APIユーザーID:', data.user.id);
+                                
+                                if (localUser.id !== data.user.id) {
+                                    console.error('⚠️ ユーザーIDが一致しません！強制ログアウトします');
+                                    console.error('ローカル:', localUser.id, 'API:', data.user.id);
+                                    
+                                    // 不正な状態のため強制ログアウト
+                                    await this.logout();
+                                    return;
+                                }
+                            }
+                            
                             this.user = data.user;
                             this.authenticated = true;
+                            
+                            // localStorageのユーザー情報も更新
+                            localStorage.setItem('user', JSON.stringify(data.user));
                         } else {
                             // トークンが無効
+                            console.log('トークンが無効でした');
                             localStorage.removeItem('auth_token');
                             localStorage.removeItem('user');
                             this.redirectToLogin();
@@ -187,10 +238,12 @@
                         this.redirectToLogin();
                     } finally {
                         this.loading = false;
+                        console.log('=== ダッシュボード認証チェック終了 ===');
                     }
                 },
 
                 async logout() {
+                    console.log('=== ログアウト処理開始 ===');
                     const token = localStorage.getItem('auth_token');
                     
                     if (token) {
@@ -200,8 +253,10 @@
                                 headers: {
                                     'Authorization': `Bearer ${token}`,
                                     'Accept': 'application/json',
+                                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || ''
                                 }
                             });
+                            console.log('サーバー側ログアウト完了');
                         } catch (error) {
                             console.error('Logout failed:', error);
                         }
@@ -210,6 +265,7 @@
                     // ローカルストレージをクリア
                     localStorage.removeItem('auth_token');
                     localStorage.removeItem('user');
+                    console.log('ローカルストレージをクリアしました');
                     
                     // ログインページにリダイレクト
                     window.location.href = '/auth';

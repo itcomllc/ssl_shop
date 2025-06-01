@@ -11,7 +11,7 @@
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body class="bg-gray-50 min-h-screen">
-    <div x-data="authApp()" class="min-h-screen flex items-center justify-center py-12 px-4">
+    <div x-data="authApp()" x-init="init()" class="min-h-screen flex items-center justify-center py-12 px-4">
         <div class="max-w-md w-full space-y-8">
             <!-- ヘッダー -->
             <div class="text-center">
@@ -27,12 +27,12 @@
 
             <!-- タブ選択 -->
             <div class="flex bg-gray-200 rounded-lg p-1">
-                <button @click="mode = 'login'" 
+                <button @click="switchMode('login')" 
                         :class="mode === 'login' ? 'bg-white shadow-sm' : ''"
                         class="flex-1 py-2 text-sm font-medium rounded-md transition-all">
                     ログイン
                 </button>
-                <button @click="mode = 'register'" 
+                <button @click="switchMode('register')" 
                         :class="mode === 'register' ? 'bg-white shadow-sm' : ''"
                         class="flex-1 py-2 text-sm font-medium rounded-md transition-all">
                     新規登録
@@ -122,15 +122,92 @@
                     password_confirmation: ''
                 },
 
+                init() {
+                    // 初期化時に認証状態をチェック
+                    this.checkExistingAuth();
+                },
+
+                async checkExistingAuth() {
+                    const token = localStorage.getItem('auth_token');
+                    
+                    if (token) {
+                        // 既にログインしている場合はダッシュボードにリダイレクト
+                        try {
+                            const response = await fetch('/api/v1/user', {
+                                method: 'GET',
+                                headers: {
+                                    'Authorization': `Bearer ${token}`,
+                                    'Accept': 'application/json',
+                                }
+                            });
+
+                            if (response.ok) {
+                                // 有効なトークンがある場合はダッシュボードへ
+                                window.location.href = '/dashboard';
+                                return;
+                            } else {
+                                // 無効なトークンの場合はクリア
+                                this.clearAuthData();
+                            }
+                        } catch (error) {
+                            console.error('Auth check failed:', error);
+                            this.clearAuthData();
+                        }
+                    }
+                },
+
+                switchMode(newMode) {
+                    this.mode = newMode;
+                    this.clearMessages();
+                    this.resetForms();
+                },
+
+                clearMessages() {
+                    this.error = '';
+                    this.success = '';
+                },
+
+                resetForms() {
+                    this.loginData = {
+                        email: '',
+                        password: ''
+                    };
+                    this.registerData = {
+                        name: '',
+                        email: '',
+                        company_name: '',
+                        password: '',
+                        password_confirmation: ''
+                    };
+                },
+
+                clearAuthData() {
+                    localStorage.removeItem('auth_token');
+                    localStorage.removeItem('user');
+                    // セッションストレージもクリア
+                    sessionStorage.clear();
+                },
+
                 async login() {
                     await this.submitAuth('/api/v1/login', this.loginData);
                 },
 
                 async register() {
+                    // 登録前に既存の認証データをクリア
+                    this.clearAuthData();
+                    
+                    // セッションストレージもクリア
+                    sessionStorage.clear();
+                    
+                    // 少し待機してからリクエスト
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    
                     await this.submitAuth('/api/v1/register', this.registerData);
                 },
 
                 async demoLogin() {
+                    // デモログイン前に既存の認証データをクリア
+                    this.clearAuthData();
                     await this.submitAuth('/api/v1/login', {
                         email: 'admin@ssl-shop.jp',
                         password: 'password123'
@@ -139,10 +216,17 @@
 
                 async submitAuth(url, data) {
                     this.loading = true;
-                    this.error = '';
-                    this.success = '';
+                    this.clearMessages();
+
+                    console.log('=== 認証処理開始 ===');
+                    console.log('URL:', url);
+                    console.log('送信データ:', data);
 
                     try {
+                        // 送信前に再度認証データをクリア
+                        this.clearAuthData();
+                        console.log('認証データをクリアしました');
+
                         const response = await fetch(url, {
                             method: 'POST',
                             headers: {
@@ -154,18 +238,36 @@
                         });
 
                         const result = await response.json();
+                        console.log('サーバーレスポンス:', result);
+                        console.log('レスポンスステータス:', response.status);
 
                         if (response.ok) {
-                            // トークンをlocalStorageに保存
-                            localStorage.setItem('auth_token', result.token);
-                            localStorage.setItem('user', JSON.stringify(result.user));
-                            
-                            this.success = 'ログインしました。リダイレクト中...';
-                            
-                            // ダッシュボードにリダイレクト
-                            setTimeout(() => {
-                                window.location.href = '/dashboard';
-                            }, 1000);
+                            // 認証成功時のみトークンを保存
+                            if (result.token && result.user) {
+                                console.log('新しいユーザー情報:', result.user);
+                                console.log('新しいトークン（最初の10文字）:', result.token.substring(0, 10) + '...');
+                                
+                                // 再度クリアしてから保存
+                                this.clearAuthData();
+                                localStorage.setItem('auth_token', result.token);
+                                localStorage.setItem('user', JSON.stringify(result.user));
+                                
+                                // 保存後確認
+                                console.log('保存されたユーザー:', JSON.parse(localStorage.getItem('user')));
+                                
+                                this.success = `${result.user.name}さんでログインしました。リダイレクト中...`;
+                                
+                                // 新規登録の場合はより長く待機
+                                const waitTime = url.includes('register') ? 2000 : 1500;
+                                
+                                // ダッシュボードにリダイレクト
+                                setTimeout(() => {
+                                    window.location.href = '/dashboard';
+                                }, waitTime);
+                            } else {
+                                this.error = 'サーバーからの応答が不正です';
+                                console.error('無効なサーバーレスポンス:', result);
+                            }
                         } else {
                             // エラー処理
                             if (result.errors) {
@@ -173,12 +275,18 @@
                             } else {
                                 this.error = result.message || '処理に失敗しました';
                             }
+                            console.error('認証エラー:', result);
+                            // エラー時も認証データをクリア
+                            this.clearAuthData();
                         }
                     } catch (error) {
                         console.error('Auth error:', error);
                         this.error = 'ネットワークエラーが発生しました';
+                        // エラー時も認証データをクリア
+                        this.clearAuthData();
                     } finally {
                         this.loading = false;
+                        console.log('=== 認証処理終了 ===');
                     }
                 }
             }

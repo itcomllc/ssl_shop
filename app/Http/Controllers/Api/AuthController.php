@@ -8,6 +8,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Laravel\Sanctum\TransientToken;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
+
 
 class AuthController extends Controller
 {
@@ -27,6 +31,15 @@ class AuthController extends Controller
             ], 422);
         }
 
+        // 同じメールアドレスの既存ユーザーの全トークンを削除（念のため）
+        $existingUser = User::where('email', $request->email)->first();
+        if ($existingUser) {
+            $existingUser->tokens()->delete();
+        }
+
+        // 全ユーザーの既存トークンをクリア（一時的なデバッグ対応）
+        //DB::table('personal_access_tokens')->truncate();
+
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
@@ -34,11 +47,22 @@ class AuthController extends Controller
             'company_name' => $request->company_name,
         ]);
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        // 新しいトークンを作成（ユニークなトークン名を使用）
+        $tokenName = 'auth_token_' . $user->id . '_' . time();
+        $token = $user->createToken($tokenName, ['*'], now()->addDays(30))->plainTextToken;
+
+        // デバッグログ
+        Log::info('User registered', [
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'name' => $user->name,
+            'token_prefix' => substr($token, 0, 10),
+            'token_name' => $tokenName
+        ]);
 
         return response()->json([
             'message' => 'ユーザー登録が完了しました',
-            'user' => $user,
+            'user' => $user->fresh(), // 最新の情報を取得
             'token' => $token,
         ], 201);
     }
@@ -64,28 +88,100 @@ class AuthController extends Controller
         }
 
         $user = User::where('email', $request->email)->firstOrFail();
-        $token = $user->createToken('auth_token')->plainTextToken;
+
+        // 既存のトークンをすべて削除（同一ユーザーの多重ログイン防止）
+        $user->tokens()->delete();
+
+        // 新しいトークンを作成（ユニークなトークン名を使用）
+        $tokenName = 'auth_token_' . $user->id . '_' . time();
+        $token = $user->createToken($tokenName, ['*'], now()->addDays(30))->plainTextToken;
+
+        // デバッグログ
+        Log::info('User logged in', [
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'name' => $user->name,
+            'token_prefix' => substr($token, 0, 10),
+            'token_name' => $tokenName
+        ]);
 
         return response()->json([
             'message' => 'ログインしました',
-            'user' => $user,
+            'user' => $user->fresh(), // 最新の情報を取得
             'token' => $token,
         ]);
     }
 
     public function user(Request $request)
     {
+        $user = $request->user();
+        $token = $request->bearerToken();
+
+        // トークンの詳細情報を取得
+        $currentToken = $user->currentAccessToken();
+
+        // TransientToken かどうかをチェック
+        $isTransientToken = $currentToken instanceof TransientToken;
+
+        // デバッグログ
+        Log::info('User info requested', [
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'name' => $user->name,
+            'token_prefix' => $token ? substr($token, 0, 10) : 'none',
+            'is_transient_token' => $isTransientToken,
+            'token_id' => $isTransientToken ? 'transient' : ($currentToken ? $currentToken->id : 'none'),
+            'token_name' => $isTransientToken ? 'transient' : ($currentToken ? $currentToken->name : 'none')
+        ]);
+
         return response()->json([
-            'user' => $request->user(),
+            'user' => $user,
+            'debug' => [
+                'token_user_id' => $user->id,
+                'token_prefix' => $token ? substr($token, 0, 10) : 'none',
+                'is_transient_token' => $isTransientToken,
+                'token_id' => $isTransientToken ? 'transient' : ($currentToken ? $currentToken->id : 'none'),
+                'current_token_tokenable_id' => $isTransientToken ? $user->id : ($currentToken ? $currentToken->tokenable_id : 'none')
+            ]
         ]);
     }
 
     public function logout(Request $request)
     {
-        $request->user()->currentAccessToken()->delete();
+        $user = $request->user();
+        $currentToken = $user->currentAccessToken();
+        $isTransientToken = $currentToken instanceof TransientToken;
+
+        // APIトークンを削除
+        if (!$isTransientToken && $currentToken) {
+            $currentToken->delete();
+        }
+
+        // セッションを手動でクリア
+        if (session()->isStarted()) {
+            session()->flush();
+            session()->regenerate();
+        }
+
+        Log::info('User logged out', [
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'was_transient_token' => $isTransientToken,
+        ]);
 
         return response()->json([
             'message' => 'ログアウトしました',
+        ]);
+    }
+
+    // 全デバイスからログアウト（オプション）
+    public function logoutAll(Request $request)
+    {
+        // ユーザーのすべてのトークンを削除
+        $request->user()->tokens()->delete();
+
+        return response()->json([
+            'message' => 'すべてのデバイスからログアウトしました',
         ]);
     }
 }

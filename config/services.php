@@ -35,4 +35,17 @@ return [
         ],
     ],
 
+    'square' => [
+        'application_id' => env('SQUARE_APPLICATION_ID'),
+        'access_token' => env('SQUARE_ACCESS_TOKEN'),
+        'location_id' => env('SQUARE_LOCATION_ID'),
+        'webhook_signature_key' => env('SQUARE_WEBHOOK_SIGNATURE_KEY'),
+        'environment' => env('SQUARE_ENVIRONMENT', 'sandbox'),
+        'ssl_plan_variation_id' => env('SQUARE_SSL_PLAN_VARIATION_ID'),
+    ],
+
+    'gogetssl' => [
+        'api_key' => env('GOGETSSL_API_KEY'),
+        'base_url' => env('GOGETSSL_BASE_URL', 'https://my.gogetssl.com/api'),
+    ],
 ];

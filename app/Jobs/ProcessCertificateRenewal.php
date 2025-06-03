@@ -63,7 +63,7 @@ class ProcessCertificateRenewal implements ShouldQueue
             ]);
 
             // ユーザーに通知
-            $renewalOrder->user->notify(new CertificateRenewalNotification($renewalOrder));
+            $renewalOrder->user->notify(new CertificateRenewalNotification($originalOrder , $renewalOrder));
 
         } catch (\Exception $e) {
             Log::error('Certificate renewal failed: ' . $e->getMessage(), [

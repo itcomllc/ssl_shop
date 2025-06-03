@@ -33,6 +33,7 @@ return [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
+        'webhook_url' => env('SLACK_WEBHOOK_URL'),
     ],
 
     'square' => [
@@ -45,7 +46,11 @@ return [
     ],
 
     'gogetssl' => [
-        'api_key' => env('GOGETSSL_API_KEY'),
+        'username' => env('GOGETSSL_USERNAME'),
+        'password' => env('GOGETSSL_PASSWORD'),
         'base_url' => env('GOGETSSL_BASE_URL', 'https://my.gogetssl.com/api'),
+        'partner_code' => env('GOGETSSL_PARTNER_CODE'),
+        'timeout' => env('GOGETSSL_TIMEOUT', 30),
+        'sandbox' => env('GOGETSSL_SANDBOX', false),
     ],
 ];

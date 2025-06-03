@@ -9,12 +9,12 @@ use App\Services\SquarePaymentService;
 use App\Services\GoGetSSLService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
 class CertificateController extends Controller
 {
     private $squareService;
-    private $gogetSSLService;
 
     public function __construct(SquarePaymentService $squareService, GoGetSSLService $gogetSSLService)
     {
@@ -69,7 +69,7 @@ class CertificateController extends Controller
 
             // 注文レコード作成
             $order = CertificateOrder::create([
-                'user_id' => auth()->id(),
+                'user_id' => Auth::id(),
                 'certificate_product_id' => $product->id,
                 'square_payment_id' => $payment->getId(),
                 'domain_name' => $request->domain_name,
@@ -193,8 +193,8 @@ class CertificateController extends Controller
         try {
             // 顧客作成または取得
             $customer = $this->squareService->createOrGetCustomer(
-                auth()->user()->email,
-                auth()->user()->name ?? 'SSL Customer',
+                Auth::user()->email,
+                Auth::user()->name ?? 'SSL Customer',
                 '' // family name
             );
 
@@ -256,7 +256,7 @@ class CertificateController extends Controller
     public function subscriptions()
     {
         $subscriptions = CertificateSubscription::with(['order.product'])
-            ->where('user_id', auth()->id())
+            ->where('user_id', Auth::id())
             ->get();
 
         return view('certificates.subscriptions', compact('subscriptions'));

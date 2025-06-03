@@ -9,13 +9,12 @@ use App\Services\SquarePaymentService;
 use App\Services\GoGetSSLService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
-
 
 class CertificateApiController extends Controller
 {
     private $squareService;
-    private $gogetSSLService;
 
     public function __construct(SquarePaymentService $squareService, GoGetSSLService $gogetSSLService)
     {
@@ -69,7 +68,7 @@ class CertificateApiController extends Controller
 
             // 注文レコード作成
             $order = CertificateOrder::create([
-                'user_id' => auth()->id(),
+                'user_id' => Auth::id(),
                 'certificate_product_id' => $product->id,
                 'square_payment_id' => $payment->getId(),
                 'domain_name' => $request->domain_name,
@@ -222,7 +221,7 @@ class CertificateApiController extends Controller
     public function subscriptions()
     {
         $subscriptions = CertificateSubscription::with(['order.product'])
-            ->where('user_id', auth()->id())
+            ->where('user_id', Auth::id())
             ->get();
 
         return response()->json([
@@ -249,7 +248,7 @@ class CertificateApiController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            \Log::warning('Failed to sync subscription data: ' . $e->getMessage());
+            Log::warning('Failed to sync subscription data: ' . $e->getMessage());
         }
 
         return response()->json([
@@ -357,8 +356,8 @@ class CertificateApiController extends Controller
         try {
             // 顧客作成または取得
             $customer = $this->squareService->createOrGetCustomer(
-                auth()->user()->email,
-                auth()->user()->name ?? 'SSL Customer',
+                Auth::user()->email,
+                Auth::user()->name ?? 'SSL Customer',
                 '' // family name
             );
 
@@ -394,14 +393,14 @@ class CertificateApiController extends Controller
                 'billing_interval' => 'yearly'
             ]);
 
-            \Log::info('Subscription created successfully', [
+            Log::info('Subscription created successfully', [
                 'order_id' => $order->id,
                 'subscription_id' => $subscription->getId(),
                 'customer_id' => $customer->getId()
             ]);
 
         } catch (\Exception $e) {
-            \Log::error('Subscription creation failed: ' . $e->getMessage(), [
+            Log::error('Subscription creation failed: ' . $e->getMessage(), [
                 'order_id' => $order->id,
                 'user_id' => $order->user_id,
                 'error_trace' => $e->getTraceAsString()
@@ -409,34 +408,4 @@ class CertificateApiController extends Controller
         }
     }
 
-    /**
-     * 注文ステータス更新（プライベートメソッド）
-     */
-    private function updateOrderStatus(CertificateOrder $order)
-    {
-        if (!$order->gogetssl_order_id) {
-            return;
-        }
-
-        try {
-            $status = $this->gogetSSLService->getOrderStatus($order->gogetssl_order_id);
-            
-            $statusMap = [
-                'active' => 'issued',
-                'processing' => 'processing',
-                'expired' => 'expired',
-                'cancelled' => 'failed'
-            ];
-
-            if (isset($statusMap[$status['status']])) {
-                $order->update(['status' => $statusMap[$status['status']]]);
-                
-                if ($status['status'] === 'active' && isset($status['valid_till'])) {
-                    $order->update(['expires_at' => $status['valid_till']]);
-                }
-            }
-        } catch (\Exception $e) {
-            Log::error('Failed to update order status: ' . $e->getMessage());
-        }
-    }
 }
